@@ -1,0 +1,78 @@
+name: Build Application
+on:
+  push:
+    branches:
+      main
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.commit.outputs.commit_long_sha }}
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Extract current version
+        run: echo "VERSION=$(sed -nr 's/version = "(.+)"/\1/p' pyproject.toml)" >> $GITHUB_ENV
+
+      - name: Compute new version
+        run: echo "NEW_VERSION=$(echo ${{ env.VERSION }} | awk -F. '/[0-9]+\./{$NF++;print}' OFS=.)" >> $GITHUB_ENV
+        
+      - name: Bump version in pyproject.toml
+        run: sed -ri "s/version = \".+\"/version = \"${{env.NEW_VERSION}}\"/" pyproject.toml
+
+      - name: Commit version bump
+        id: commit
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: "pyproject.toml"
+          author_name: Seth Hinz
+          author_email: sethhinz@me.com
+          message: "Automatic version bump"
+          tag: "v${{env.NEW_VERSION}}"
+  build:
+    runs-on: macos-latest
+    needs: bump
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump.outputs.commit }}
+        
+      - name: Extract current version
+        run: echo "VERSION=$(sed -nr 's/version = "(.+)"/\1/p' pyproject.toml)" >> $GITHUB_ENV
+
+      - name: Set up rye
+        uses: sksat/setup-rye@v0.25.0
+
+      - name: Set up python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: rye sync
+
+      - name: Build
+        run: |
+          yes | rye run build
+          zip flump.zip -r flump
+
+      - name: Create release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag: "v${{ env.VERSION }}"
+        run: |
+          gh release create "$tag" \
+            --title="Flump version ${{ env.VERSION }}" \
+            --generate-notes \
+            flump.zip
+
+
+        # uses: "marvinpinto/action-automatic-releases@latest"
+        # with:
+        #   repo_token: "${{ secrets.GITHUB_TOKEN }}"
+        #   automatic_release_tag: "v${{ env.VERSION }}"
+        #   prerelease: false
+        #   title: "Flump version ${{ env.VERSION }}"
+          # files: flump.zip

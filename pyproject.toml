@@ -11,12 +11,14 @@ dependencies = [
     "numpy>=2.0.1",
     "pyobjc>=10.3.1",
     "pyobjc-core>=10.3.1",
+    "pyinstaller>=6.9.0",
 ]
 readme = "README.md"
 requires-python = ">= 3.8"
 
 [project.scripts]
 flump = "flump.flump:main"
+build = "flump.build:install"
 
 [build-system]
 requires = ["hatchling"]
