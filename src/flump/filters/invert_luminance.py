@@ -25,5 +25,5 @@ class InvertLuminance(Filter):
 
         return inverted_image
 
-    def default_params(self) -> dict[str, Any]:
+    def default_params() -> dict[str, Any]:
         return {}
