@@ -51,7 +51,7 @@ class Flump(QWidget):
     def _all_filters(self) -> list[Type[Filter]]:
         return Flump._BUILTIN_FILTERS + self._user_filters
 
-    def _get_filter_by_index(self, index: int):
+    def _get_filter_by_index(self, index: int) -> Type[Filter]:
         return self._all_filters()[index]
     
     def _initialize_ui(self):
@@ -138,7 +138,7 @@ class Flump(QWidget):
                 widget.setMinimum(0)
                 widget.setMaximum(1000)
                 widget.setValue(Flump._default_slider_value(param_spec))
-                widget.sliderMoved.connect(self._process_image)
+                widget.valueChanged.connect(self._process_image)
             elif isinstance(param_spec, bool):
                 widget = QCheckBox()
                 widget.setChecked(param_spec)
@@ -156,7 +156,7 @@ class Flump(QWidget):
         layout.addStretch()
         self._process_image()
     
-    def _get_filter_params(self):
+    def _get_filter_params(self) -> dict[str, float | str | bool]:
         default_params = self._filter.default_params()
         params = {}
         for param_name, param_widget in self._param_map.items():
@@ -179,7 +179,7 @@ class Flump(QWidget):
         else:
             event.ignore()
     
-    def _q_image_to_pil(self, q_image: QImage) -> Image:
+    def _q_image_to_pil(self, q_image: QImage) -> Image.Image:
         q_image = q_image.convertToFormat(QImage.Format.Format_RGBA8888)
         width, height = q_image.width(), q_image.height()
         buffer = q_image.constBits()
