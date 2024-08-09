@@ -2,10 +2,11 @@ name: Build Application
 on:
   push:
     branches:
-      main
+      - main
     paths:
-      src/**
-      pyproject.toml
+      - src/**
+      - pyproject.toml
+      - .github/workflows/*
 jobs:
   bump:
     runs-on: ubuntu-latest
