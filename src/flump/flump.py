@@ -6,12 +6,12 @@ from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QVBoxLay
 from PyQt6.QtGui import QPixmap, QImage, QDragEnterEvent, QDropEvent, QKeyEvent
 from PyQt6.QtCore import Qt, QUrl
 from PIL import Image, UnidentifiedImageError
-import AppKit
 import io
 import numpy as np
 from .filter import Filter
 from typing import Type, Optional
 from .filters.invert_luminance import InvertLuminance
+from .copy_image import copy_image
 
 class Flump(QWidget):
     _BUILTIN_FILTERS: list[Type[Filter]] = Filter.__subclasses__()
@@ -180,7 +180,7 @@ class Flump(QWidget):
             event.ignore()
     
     def _q_image_to_pil(self, q_image: QImage) -> Image.Image:
-        q_image = q_image.convertToFormat(QImage.Format.Format_RGBA8888)
+        q_image.convertTo(QImage.Format.Format_RGBA8888)
         width, height = q_image.width(), q_image.height()
         buffer = q_image.constBits()
         buffer.setsize(height * width * 4)
@@ -193,6 +193,7 @@ class Flump(QWidget):
 
         try:
             self._output_image = self._filter.apply(self._input_image, self._get_filter_params()).convert('RGBA')
+            # self._output_image = self._input_image.copy()
 
             # Display transformed image
             qpixmap = QPixmap.fromImage(QImage(
@@ -206,15 +207,7 @@ class Flump(QWidget):
                 Qt.TransformationMode.SmoothTransformation))
 
             # Copy to clipboard
-            output = io.BytesIO()
-            self._output_image.save(output, format='PNG')
-            ns_image = AppKit.NSImage.alloc().initWithData_(
-                AppKit.NSData.dataWithBytes_length_(output.getvalue(), len(output.getvalue()))
-            )
-
-            pb = AppKit.NSPasteboard.generalPasteboard()
-            pb.clearContents()
-            pb.setData_forType_(ns_image.TIFFRepresentation(), AppKit.NSTIFFPboardType)
+            copy_image(self._output_image)
 
             self._save_button.setEnabled(True)
         except Exception as e:
