@@ -3,14 +3,15 @@ import os
 import random
 import string
 from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QMessageBox, QComboBox, QScrollArea, QFrame, QSlider, QCheckBox, QLineEdit
-from PyQt6.QtGui import QPixmap, QImage, QDragEnterEvent, QDropEvent, QKeyEvent
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtGui import QPixmap, QImage, QDragEnterEvent, QDropEvent, QKeyEvent, QFocusEvent
+from PyQt6.QtCore import Qt
 from PIL import Image, UnidentifiedImageError
-import io
+import random
+import datetime
 import numpy as np
 from .filter import Filter
 from typing import Type, Optional
-from .filters.invert_luminance import InvertLuminance
+from .filters.invert_luminance import InvertLuminance  # noqa: F401
 from .copy_image import copy_image
 
 class Flump(QWidget):
@@ -23,7 +24,8 @@ class Flump(QWidget):
     _filter: Filter
     _user_filters: list[Type[Filter]] = []
     _input_image: Optional[Image.Image]
-    _output_image: Optional[Image.Image]
+    _full_output_image: Optional[Image.Image]
+    _copy_synced: bool
     _param_map: dict[str, QWidget]
 
     def __init__(self):
@@ -31,9 +33,10 @@ class Flump(QWidget):
         self._user_filters = Flump._load_user_filters()
         self._initialize_ui()
         self._input_image = None
-        self._output_image = None
+        self._full_output_image = None
         self._set_filter(Flump._BUILTIN_FILTERS[0])
         self._param_map = {}
+        self._copy_synced = False
 
     def _load_user_filters() -> list[Type[Filter]]:
         if not os.path.exists(Flump._USER_FILTER_PATH):
@@ -71,10 +74,10 @@ class Flump(QWidget):
         self._filter_selector.currentIndexChanged.connect(self._on_filter_index_changed)
         layout.addWidget(self._filter_selector)
 
-        self.label = QLabel("Drag and drop an image here\nor paste from clipboard")
-        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.label.setMinimumHeight(200)
-        layout.addWidget(self.label)
+        self._image_preview_area = QLabel("Drag and drop an image here\nor paste from clipboard")
+        self._image_preview_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._image_preview_area.setMinimumHeight(200)
+        layout.addWidget(self._image_preview_area)
 
         self._save_button = QPushButton("Save to Downloads")
         self._save_button.clicked.connect(self._save_image)
@@ -90,10 +93,37 @@ class Flump(QWidget):
         scroll.setWidget(frame)
         layout.addWidget(scroll)
 
+        motd = "flump • https:// github.com/shinzlet/flump"
+
+        if random.uniform(0, 1) < 0.3:
+            motd = random.choice([
+                "Happy flumping!",
+                "Flump it up!",
+                "It's always flump o'clock somewhere.",
+                f"Bug-free since {datetime.datetime.now().strftime('%B %d, %Y')}!",
+                "Flump Lets U Modify Pixels",
+                "The only app that isn't not Flump.",
+                "I'm sorry, but as a language model deve-"
+            ])
+        
+        if random.uniform(0, 1) < 1e-7:
+            motd = "Please purchase Flump premium."
+        
+        self._copied_label = QLabel(motd)
+        self._copied_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._copied_label)
+
         # I do this instead of overloading methods to keep code camel_cased
         self.dragEnterEvent = self._drag_enter_event
         self.dropEvent = self._drop_event
         self.keyPressEvent = self._on_key_pressed
+
+        # window focus loss detector
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.focusOutEvent = self._focus_out_event
+    
+    def _focus_out_event(self, event: QFocusEvent):
+        self._ensure_copy_synced()
     
     def _map_slider_to_float_spec(slider_val: int, spec: tuple[float, float, float]) -> float:
         return spec[0] + (spec[1] - spec[0]) * slider_val / 1000
@@ -118,7 +148,7 @@ class Flump(QWidget):
             # See NOTE above
             self._input_image = self._q_image_to_pil(image_source).convert("RGBA").copy()
         
-        self._process_image()
+        self._update_output_preview()
     
     def _set_filter(self, filter: Type[Filter]):
         self._filter = filter
@@ -138,15 +168,20 @@ class Flump(QWidget):
                 widget.setMinimum(0)
                 widget.setMaximum(1000)
                 widget.setValue(Flump._default_slider_value(param_spec))
-                widget.valueChanged.connect(self._process_image)
+                widget.valueChanged.connect(self._update_output_preview)
+                widget.sliderReleased.connect(self._ensure_copy_synced)
             elif isinstance(param_spec, bool):
                 widget = QCheckBox()
                 widget.setChecked(param_spec)
-                widget.checkStateChanged.connect(self._process_image)
+                def _on_check_state_changed(checked: bool):
+                    self._update_output_preview()
+                    self._ensure_copy_synced()
+                widget.checkStateChanged.connect(_on_check_state_changed)
             elif isinstance(param_spec, str):
                 widget = QLineEdit()
                 widget.setText(param_spec)
-                widget.textChanged.connect(self._process_image)
+                widget.textChanged.connect(self._update_output_preview)
+                widget.editingFinished.connect(self._ensure_copy_synced)
             else:
                 raise ValueError(f"Invalid parameter specification: {param_spec}")
 
@@ -154,7 +189,35 @@ class Flump(QWidget):
             layout.addWidget(widget)
         
         layout.addStretch()
-        self._process_image()
+        self._update_output_preview()
+    
+    def _process_image(self, image: Image.Image):
+        output = self._filter.apply(image, self._get_filter_params())
+        
+        if output.mode != 'RGBA':
+            output = output.convert('RGBA')
+        
+        return output
+    
+    # Returns the output image at full resolution, using caching to avoid recomputing
+    # as much as possible. This can be slow if you are changing parameters - try to only use
+    # this when you absolutely need the full size image. Returns None if no input image is set.
+    def _get_full_output(self) -> Optional[Image.Image]:
+        if self._input_image is None:
+            return None
+
+        if self._full_output_image is None:
+            self._full_output_image = self._process_image(self._input_image)
+        
+        return self._full_output_image
+
+    def _ensure_copy_synced(self):
+        if not self._copy_synced:
+            output = self._get_full_output()
+            if output is not None:
+                copy_image(output)
+                self._copy_synced = True
+                self._copied_label.setText("Copied to clipboard")
     
     def _get_filter_params(self) -> dict[str, float | str | bool]:
         default_params = self._filter.default_params()
@@ -187,43 +250,53 @@ class Flump(QWidget):
         arr = np.frombuffer(buffer, np.uint8).reshape((height, width, 4))
         return Image.fromarray(arr)
     
-    def _process_image(self):
+    def _update_output_preview(self):
         if self._input_image is None:
             return
 
         try:
-            self._output_image = self._filter.apply(self._input_image, self._get_filter_params()).convert('RGBA')
-            # self._output_image = self._input_image.copy()
+            downscaled_input = self._input_image
+            # 256x256 images are usually very quick to compute, so this is kind of our heuristic for "is this a lot of pixels"
+            pixel_threshold = 256 ** 2
+            oversize_factor = downscaled_input.width * downscaled_input.height / pixel_threshold
+            if oversize_factor > 1:
+                skip = int(oversize_factor ** 0.5)
+                downscaled_input = downscaled_input.resize(
+                    (downscaled_input.width // skip, downscaled_input.height // skip),
+                    Image.Resampling.NEAREST)
+                
+            output_preview = self._process_image(downscaled_input)
+            self._copy_synced = False
+            self._full_output_image = None
+            self._copied_label.setText("")
 
             # Display transformed image
             qpixmap = QPixmap.fromImage(QImage(
-                self._output_image.tobytes(),
-                self._output_image.width,
-                self._output_image.height,
+                output_preview.tobytes(),
+                output_preview.width,
+                output_preview.height,
                 QImage.Format.Format_RGBA8888))
-            self.label.setPixmap(qpixmap.scaled(
-                self.label.size(),
+            self._image_preview_area.setPixmap(qpixmap.scaled(
+                self._image_preview_area.size(),
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation))
-
-            # Copy to clipboard
-            copy_image(self._output_image)
 
             self._save_button.setEnabled(True)
         except Exception as e:
             print(e)
             QMessageBox.warning(self, "Error", f"Failed to process image: {str(e)}")
-            self.label.setText('Drag and drop an image here\nor paste from clipboard')
+            self._image_preview_area.setText('Drag and drop an image here\nor paste from clipboard')
             self._save_button.setEnabled(False)
 
     def _save_image(self):
-        if self._output_image is not None:
+        output = self._get_full_output()
+        if output is not None:
             while True:
                 random_name = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10)) + '.png'
                 path = os.path.expanduser(f'~/Downloads/{random_name}')
                 if os.path.exists(path):
                     continue
-                self._output_image.save(path)
+                output.save(path)
                 QMessageBox.information(self, "Saved", f'Image saved to {path}')
                 break
     

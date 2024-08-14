@@ -60,7 +60,7 @@ jobs:
       - name: Build
         run: |
           yes | rye run build
-          zip flump.zip -r flump
+          zip flump-arm-macos.zip -r flump
 
       - name: Create release
         env:
@@ -70,7 +70,7 @@ jobs:
           gh release create "$tag" \
             --title="Flump version ${{ env.VERSION }}" \
             --generate-notes \
-            flump.zip
+            flump-arm-macos.zip
 
 
         # uses: "marvinpinto/action-automatic-releases@latest"
