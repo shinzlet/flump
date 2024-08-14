@@ -9,9 +9,10 @@ dependencies = [
     "pyqt6>=6.7.1",
     "pillow>=10.4.0",
     "numpy>=2.0.1",
-    "pyobjc>=10.3.1",
-    "pyobjc-core>=10.3.1",
+    "pyobjc>=10.3.1; platform_system == 'Darwin'",
+    "pyobjc-core>=10.3.1; platform_system == 'Darwin'",
     "pyinstaller>=6.9.0",
+    "pywin32>=306; platform_system == 'Windows'",
 ]
 readme = "README.md"
 requires-python = ">= 3.8"
