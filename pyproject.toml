@@ -1,7 +1,7 @@
 [project]
 name = "flump"
 version = "0.1.3"
-description = "A small utility program to flip the luminance of images and save the result to your clipboard (macos only)"
+description = "A small utility program to flip the luminance of images and save the result to your clipboard (for MacOS and Windows)"
 authors = [
     { name = "Seth Hinz", email = "sethhinz@me.com" }
 ]
