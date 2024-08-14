@@ -34,7 +34,7 @@ jobs:
           author_email: sethhinz@me.com
           message: "Automatic version bump"
           tag: "v${{env.NEW_VERSION}}"
-  build:
+  build-macos:
     runs-on: macos-latest
     needs: bump
     steps:
@@ -71,12 +71,37 @@ jobs:
             --title="Flump version ${{ env.VERSION }}" \
             --generate-notes \
             flump-arm-macos.zip
+  build-windows:
+    runs-on: windows-latest
+    needs: build-macos
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump.outputs.commit }}
+        
+      - name: Extract current version
+        shell: pwsh
+        run: |
+          $version = Select-String -Path pyproject.toml -Pattern 'version = "(.+)"' | ForEach-Object { $_.Matches.Groups[1].Value }
+          echo "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Set up rye
+        uses: sksat/setup-rye@v0.25.0
 
-        # uses: "marvinpinto/action-automatic-releases@latest"
-        # with:
-        #   repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        #   automatic_release_tag: "v${{ env.VERSION }}"
-        #   prerelease: false
-        #   title: "Flump version ${{ env.VERSION }}"
-          # files: flump.zip
+      - name: Set up python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: rye sync
+
+      - name: Build
+        shell: pwsh
+        run: |
+          rye run build
+          Compress-Archive -Path flump -DestinationPath flump-windows.zip
+      
+      - name: Upload release asset
+        run: gh release upload "v${{ env.VERSION }}" flump-windows.zip
