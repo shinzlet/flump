@@ -2,17 +2,21 @@ import sys
 import os
 import random
 import string
-from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QMessageBox, QComboBox, QScrollArea, QFrame, QSlider, QCheckBox, QLineEdit
-from PyQt6.QtGui import QPixmap, QImage, QDragEnterEvent, QDropEvent, QKeyEvent, QFocusEvent
+from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QMessageBox, QComboBox, QScrollArea, QFrame, QSlider, QCheckBox, QLineEdit, QColorDialog
+from PyQt6.QtGui import QPixmap, QImage, QDragEnterEvent, QDropEvent, QKeyEvent, QFocusEvent, QColor
 from PyQt6.QtCore import Qt
 from PIL import Image, UnidentifiedImageError
 import random
 import datetime
 import numpy as np
 from .filter import Filter
-from typing import Type, Optional
-from .filters.invert_luminance import InvertLuminance  # noqa: F401
+from typing import Type, Optional, Any
 from .copy_image import copy_image
+
+from .filters.invert_luminance import InvertLuminance  # noqa: F401
+from .filters.adjust_hsv import AdjustHSV # noqa: F401
+from .filters.adjust_rgb import AdjustRGB # noqa: F401
+from .filters.chromakey import ChromaKey # noqa: F401
 
 class Flump(QWidget):
     _BUILTIN_FILTERS: list[Type[Filter]] = Filter.__subclasses__()
@@ -27,6 +31,7 @@ class Flump(QWidget):
     _full_output_image: Optional[Image.Image]
     _copy_synced: bool
     _param_map: dict[str, QWidget]
+    _color_dialogs: dict[str, tuple[QColorDialog, Optional[QColor]]]
 
     def __init__(self):
         super().__init__()
@@ -37,6 +42,7 @@ class Flump(QWidget):
         self._set_filter(Flump._BUILTIN_FILTERS[0])
         self._param_map = {}
         self._copy_synced = False
+        self._color_dialogs = {}
 
     def _load_user_filters() -> list[Type[Filter]]:
         if not os.path.exists(Flump._USER_FILTER_PATH):
@@ -125,11 +131,13 @@ class Flump(QWidget):
     def _focus_out_event(self, event: QFocusEvent):
         self._ensure_copy_synced()
     
-    def _map_slider_to_float_spec(slider_val: int, spec: tuple[float, float, float]) -> float:
-        return spec[0] + (spec[1] - spec[0]) * slider_val / 1000
+    def _map_slider_to_float_spec(slider_val: int, spec: dict[str, Any]) -> float:
+        min, max = spec['min'], spec['max']
+        return min + (max - min) * slider_val / 1000
 
-    def _default_slider_value(spec: tuple[float, float, float]) -> int:
-        return int((spec[2] - spec[1]) / (spec[1] - spec[0]) * 1000)
+    def _default_slider_value(spec: dict[str, Any]) -> int:
+        min, max, default = spec['min'], spec['max'], spec['default']
+        return int((default - min) / (max - min) * 1000)
 
     def _set_input_image(self, image_source: str | QImage):
         if isinstance(image_source, str):
@@ -162,26 +170,40 @@ class Flump(QWidget):
         
         for param_name, param_spec in self._filter.default_params().items():
             layout.addWidget(QLabel(param_name))
+
+            type = param_spec['type']
             widget = None
-            if isinstance(param_spec, tuple):
+            if type == "float":
                 widget = QSlider(Qt.Orientation.Horizontal)
                 widget.setMinimum(0)
                 widget.setMaximum(1000)
                 widget.setValue(Flump._default_slider_value(param_spec))
                 widget.valueChanged.connect(self._update_output_preview)
                 widget.sliderReleased.connect(self._ensure_copy_synced)
-            elif isinstance(param_spec, bool):
+            elif type == "bool":
                 widget = QCheckBox()
-                widget.setChecked(param_spec)
+                widget.setChecked(param_spec["default"])
                 def _on_check_state_changed(checked: bool):
                     self._update_output_preview()
                     self._ensure_copy_synced()
                 widget.checkStateChanged.connect(_on_check_state_changed)
-            elif isinstance(param_spec, str):
+            elif type == "str":
                 widget = QLineEdit()
-                widget.setText(param_spec)
+                widget.setText(param_spec["default"])
                 widget.textChanged.connect(self._update_output_preview)
                 widget.editingFinished.connect(self._ensure_copy_synced)
+            elif type == "color":
+                # implement qt color picker:
+                # https://doc.qt.io/qtforpython/PySide6/QtWidgets/QColorDialog.html
+                # Create a button that opens a persistent qColorDialog
+                self._color_dialogs[param_name] = (QColorDialog(), QColor(*param_spec["default"], 255))
+                widget = QPushButton("Choose Color")
+                widget.clicked.connect(lambda: self._color_dialogs[param_name][0].show())
+                def _on_color_changed(color: QColor):
+                    self._color_dialogs[param_name] = (self._color_dialogs[param_name][0], color)
+                    self._update_output_preview()
+                    self._ensure_copy_synced()
+                self._color_dialogs[param_name][0].colorSelected.connect(_on_color_changed)
             else:
                 raise ValueError(f"Invalid parameter specification: {param_spec}")
 
@@ -229,6 +251,8 @@ class Flump(QWidget):
                 params[param_name] = param_widget.isChecked()
             elif isinstance(param_widget, QLineEdit):
                 params[param_name] = param_widget.text()
+            elif param_name in self._color_dialogs:
+                params[param_name] = self._color_dialogs[param_name][1].getRgb()[0:3]
             else:
                 raise ValueError(f"Invalid parameter widget: {param_widget}")
         return params
