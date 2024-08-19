@@ -19,24 +19,22 @@ class ChromaKey(Filter):
             luminance_weight = params['Luminance Weight']
             if tola >= tolb:
                 return image
-            r, g, b, src_alpha = image.copy().convert('RGBA').split()
-            image = image.convert('LAB')
-            # image = np.array(image).astype(np.float32)
-            l, a, b = (np.array(ch, dtype=np.float32) for ch in image.split())
+
+            lab_image = image.copy().convert('LAB')
+            l, a, b = (np.array(ch, dtype=np.float32) for ch in lab_image.split())
             distance = np.sqrt(((luminance_weight * (l - key_l)) ** 2) + (a - key_a) ** 2 + (b - key_b) ** 2)
             distance -= np.min(distance)
             abs_tol = np.max(distance) * tola
             
-            # print(abs_tol)
-            # print(distance[:4, :4], distance[:4, :4] > abs_tol)
-            alpha = ((distance - np.min(distance)) >= abs_tol).astype(np.float32) * np.array(src_alpha, dtype=np.float32) / 255
+            r, g, b, alpha = image.convert('RGBA').split()
+            alpha = ((distance - np.min(distance)) >= abs_tol).astype(np.float32) * np.array(alpha, dtype=np.float32) / 255
             alpha = Image.fromarray((alpha * 255).astype(np.uint8), mode='L')
             
             return Image.merge('RGBA', (r, g, b, alpha))
         except Exception as e:
             # print stack trace
             print("Error in ChromaKey filter:")
-            #   
+            # 
             raise e
             print(e)
             return image
