@@ -31,7 +31,7 @@ class Flump(QWidget):
     _full_output_image: Optional[Image.Image]
     _copy_synced: bool
     _param_map: dict[str, QWidget]
-    _color_dialogs: dict[str, tuple[QColorDialog, Optional[QColor]]]
+    _color_dialogs: dict[str, QColorDialog]
 
     def __init__(self):
         super().__init__()
@@ -196,14 +196,16 @@ class Flump(QWidget):
                 # implement qt color picker:
                 # https://doc.qt.io/qtforpython/PySide6/QtWidgets/QColorDialog.html
                 # Create a button that opens a persistent qColorDialog
-                self._color_dialogs[param_name] = (QColorDialog(), QColor(*param_spec["default"], 255))
+                color = QColor(*param_spec["default"], 255)
+                self._color_dialogs[param_name] = QColorDialog(color)
                 widget = QPushButton("Choose Color")
-                widget.clicked.connect(lambda: self._color_dialogs[param_name][0].show())
+                def _on_button_clicked(*, name = param_name):
+                    self._color_dialogs[name].show()
+                widget.clicked.connect(_on_button_clicked)
                 def _on_color_changed(color: QColor):
-                    self._color_dialogs[param_name] = (self._color_dialogs[param_name][0], color)
                     self._update_output_preview()
                     self._ensure_copy_synced()
-                self._color_dialogs[param_name][0].colorSelected.connect(_on_color_changed)
+                self._color_dialogs[param_name].colorSelected.connect(_on_color_changed)
             else:
                 raise ValueError(f"Invalid parameter specification: {param_spec}")
 
@@ -252,7 +254,7 @@ class Flump(QWidget):
             elif isinstance(param_widget, QLineEdit):
                 params[param_name] = param_widget.text()
             elif param_name in self._color_dialogs:
-                params[param_name] = self._color_dialogs[param_name][1].getRgb()[0:3]
+                params[param_name] = self._color_dialogs[param_name].currentColor().getRgb()[0:3]
             else:
                 raise ValueError(f"Invalid parameter widget: {param_widget}")
         return params
@@ -307,7 +309,6 @@ class Flump(QWidget):
 
             self._save_button.setEnabled(True)
         except Exception as e:
-            print(e)
             QMessageBox.warning(self, "Error", f"Failed to process image: {str(e)}")
             self._image_preview_area.setText('Drag and drop an image here\nor paste from clipboard')
             self._save_button.setEnabled(False)
