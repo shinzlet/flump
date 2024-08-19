@@ -13,6 +13,7 @@ dependencies = [
     "pyobjc-core>=10.3.1; platform_system == 'Darwin'",
     "pyinstaller>=6.9.0",
     "pywin32>=306; platform_system == 'Windows'",
+    "chromakey>=0.1.1",
 ]
 readme = "README.md"
 requires-python = ">= 3.8"

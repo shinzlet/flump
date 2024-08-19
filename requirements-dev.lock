@@ -13,14 +13,19 @@
 altgraph==0.17.4
     # via macholib
     # via pyinstaller
+chromakey==0.1.1
+    # via flump
 macholib==1.16.3
     # via pyinstaller
 numpy==2.0.1
+    # via chromakey
     # via flump
+    # via scipy
 packaging==24.1
     # via pyinstaller
     # via pyinstaller-hooks-contrib
 pillow==10.4.0
+    # via chromakey
     # via flump
 pyinstaller==6.9.0
     # via flump
@@ -666,6 +671,8 @@ pyqt6-qt6==6.7.2
     # via pyqt6
 pyqt6-sip==13.8.0
     # via pyqt6
+scipy==1.14.0
+    # via chromakey
 setuptools==72.1.0
     # via pyinstaller
     # via pyinstaller-hooks-contrib
